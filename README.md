@@ -49,6 +49,8 @@ NanoC6のピン配置は以下の通りです。
 
 ot_rcpを書き込んだNanoC6とot_brを書き込んだNanoC6をGROVE互換ポートで互いに接続し、ot_brを書き込んだNanoC6をPCに接続します。
 
+![ot_rcpとotbrの接続](./doc/nanoc6_otbr.drawio.svg)
+
 PC上でシリアルターミナルを開き、以下のコマンドを入力して Wi-Fiの接続設定を行います。 `<SSID>` と `<PASS>` をそれぞれ接続先のWi-FiアクセスポイントのSSIDとパスワードで置き換えます。
 
 ```
@@ -61,6 +63,19 @@ wifi connect -s <SSID> -p <PASS>
 wifi sta is connected successfully
 Done
 ```
+
+必要に応じて `dataset` コマンドのサブコマンドをつかって、Threadネットワークのパラメータを設定します。
+デフォルトでは以下のパラメータでThreadネットワークを構成します。(元のot_brサンプルのデフォルト値です)
+
+| パラメータ        | 値                                   |
+| :---------------- | ------------------------------------ |
+| `networkname`     | `OpenThread-ESP`                     |
+| `meshlocalprefix` | `fd00:db8:a0:0::/64`                 |
+| `channel`         | `15`                                 |
+| `panid`           | `0x1234`                             |
+| `extendedpanid`   | `0xdead00beef00cafe`                 |
+| `networkkey`      | `0x00112233445566778899aabbccddeeff` |
+| `pskc`            | `0x104810e2315100afd6bc9215a6bfac53` |
 
 `dataset active -x` を実行して、Threadネットワークに接続するために必要なデータセットの値を取得しておきます。この値はあとでThreadデバイスを接続するために必要なので記録しておきます。
 
