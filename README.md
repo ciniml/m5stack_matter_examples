@@ -77,19 +77,8 @@ Done
 | `networkkey`      | `0x00112233445566778899aabbccddeeff` |
 | `pskc`            | `0x104810e2315100afd6bc9215a6bfac53` |
 
-`dataset active -x` を実行して、Threadネットワークに接続するために必要なデータセットの値を取得しておきます。この値はあとでThreadデバイスを接続するために必要なので記録しておきます。
-
-```
-dataset active -x
-```
-
-```
-0e080000000000010000000300000f35060004001fffe0020811111111222222220708fd11002200000000051000112233445566778899aabbccddeeff030e4f70656e54687265616444656d6f010212340410445f2b5ca6f2a93a55ce570a70efeecb0c0402a0f7f8
-Done
-```
 
 完了後、 `ifconfig up` と `thread start` を実行してThreadの通信処理を開始します。
-
 
 ```
 ifconfig up
@@ -113,5 +102,17 @@ thread start
 I(51323) OPENTHREAD:[N] Mle-----------: Role disabled -> detached
 Done
 ```
+
+`dataset active -x` を実行して、Threadネットワークに接続するために必要なデータセットの値を取得しておきます。この値はあとでThreadデバイスを接続するために必要なので記録しておきます。
+
+```
+dataset active -x
+```
+
+```
+0e080000000000010000000300000f35060004001fffe0020811111111222222220708fd11002200000000051000112233445566778899aabbccddeeff030e4f70656e54687265616444656d6f010212340410445f2b5ca6f2a93a55ce570a70efeecb0c0402a0f7f8
+Done
+```
+
 
 以上でThreadボーダールーターの起動処理は完了です。
