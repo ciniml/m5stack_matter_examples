@@ -1,0 +1,69 @@
+diff --git a/device_hal/device/m5stack_nanoc6/device.c b/device_hal/device/m5stack_nanoc6/device.c
+new file mode 100644
+index 0000000..e8763d1
+--- /dev/null
++++ b/device_hal/device/m5stack_nanoc6/device.c
+@@ -0,0 +1,43 @@
++// Copyright 2021 Espressif Systems (Shanghai) CO LTD
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//     http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License
++
++#include <esp_log.h>
++#include <iot_button.h>
++#include <led_driver.h>
++
++#define LED_GPIO_PIN GPIO_NUM_20
++#define LED_CHANNEL 0 /* RMT_CHANNEL_0 */
++#define BUTTON_GPIO_PIN GPIO_NUM_9
++
++static const char *TAG = "device";
++
++led_driver_config_t led_driver_get_config()
++{
++    led_driver_config_t config = {
++        .gpio = LED_GPIO_PIN,
++        .channel = LED_CHANNEL,
++    };
++    return config;
++}
++
++button_config_t button_driver_get_config()
++{
++    button_config_t config = {
++        .type = BUTTON_TYPE_GPIO,
++        .gpio_button_config = {
++            .gpio_num = BUTTON_GPIO_PIN,
++            .active_level = 0,
++        }
++    };
++    return config;
++}
+diff --git a/device_hal/device/m5stack_nanoc6/esp_matter_device.cmake b/device_hal/device/m5stack_nanoc6/esp_matter_device.cmake
+new file mode 100644
+index 0000000..357b63c
+--- /dev/null
++++ b/device_hal/device/m5stack_nanoc6/esp_matter_device.cmake
+@@ -0,0 +1,11 @@
++cmake_minimum_required(VERSION 3.5)
++if (NOT ("${IDF_TARGET}" STREQUAL "esp32c6" ))
++    message(FATAL_ERROR "please set esp32c6 as the IDF_TARGET using 'idf.py --preview set-target esp32c6'")
++endif()
++
++SET(device_type     m5stack_nanoc6)
++SET(led_type        ws2812)
++SET(button_type     iot)
++
++SET(extra_components_dirs_append "$ENV{ESP_MATTER_DEVICE_PATH}/../../led_driver"
++                                 "$ENV{ESP_MATTER_DEVICE_PATH}/../../button_driver/iot_button")
+--
+2.43.0
+
