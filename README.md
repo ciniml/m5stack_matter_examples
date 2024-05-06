@@ -76,49 +76,28 @@ Done
 ```
 
 必要に応じて `dataset` コマンドのサブコマンドをつかって、Threadネットワークのパラメータを設定します。
-デフォルトでは以下のパラメータでThreadネットワークを構成します。(元のot_brサンプルのデフォルト値です)
+デフォルトではランダムな値でパラメータが初期化されます。
+また、NVSに保存されるため、M5Burner等でファームウェアを書き込みなおした場合を除いて、基本的にパラメータは次回以降は同じものが使われます。
+
+例としてネットワークキーを簡単なもの ( `11112222333344445555666677778888` ) に変更する場合を示します。
+※ネットワークキーを簡単なものにするのは実験用以外にはおすすめしません。
 
 ```
-dataset init active
+dataset init new
+dataset networkkey 11112222333344445555666677778888
 dataset commit active
-dataset active
 ```
 
-```
-Active Timestamp: 0
-Channel: 11
-Channel Mask: 0x07fff800
-Ext PAN ID: dead00beef00cafe
-Mesh Local Prefix: fdde:ad00:beef:0::/64
-Network Key: 7443e9e3e3f9bf4ea87009b17455b039
-Network Name: OpenThread
-PAN ID: 0x6f64
-PSKc: 43e769eacf5354de6d9ce281ab1b3bdd
-Security Policy: 672 onrc 0
-Done
-```
+| パラメータ        | 値                   |
+| :---------------- | -------------------- |
+| `networkname`     | `OpenThread-(PanID)` |
+| `meshlocalprefix` | `(ランダム)/64`      |
+| `channel`         | `(ランダム)`         |
+| `panid`           | `(ランダム)`         |
+| `extendedpanid`   | `(ランダム)`         |
+| `networkkey`      | `(ランダム)`         |
+| `pskc`            | `(ランダム)`         |
 
-| パラメータ        | 値                                   |
-| :---------------- | ------------------------------------ |
-| `networkname`     | `OpenThread`                     |
-| `meshlocalprefix` | `fdde:ad00:beef:0::/64`                 |
-| `channel`         | `11`                                 |
-| `panid`           | `0x6f64`                             |
-| `extendedpanid`   | `0xdead00beef00cafe`                 |
-| `networkkey`      | `0x7443e9e3e3f9bf4ea87009b17455b039` |
-| `pskc`            | `0x43e769eacf5354de6d9ce281ab1b3bdd` |
-
-
-`dataset active -x` を実行して、Threadネットワークに接続するために必要なデータセットの値を取得しておきます。この値はあとでThreadデバイスを接続するために必要なので記録しておきます。
-
-```
-dataset active -x
-```
-
-```
-0e080000000000000000000300000b35060004001fffe00208dead00beef00cafe0708fddead00beef000005107443e9e3e3f9bf4ea87009b17455b039030a4f70656e54687265616401026f64041043e769eacf5354de6d9ce281ab1b3bdd0c0402a0f7f8
-Done
-```
 
 完了後、 `ifconfig up` と `thread start` を実行してThreadの通信処理を開始します。
 
@@ -145,7 +124,36 @@ I(51323) OPENTHREAD:[N] Mle-----------: Role disabled -> detached
 Done
 ```
 
+`dataset active -x` を実行して、Threadネットワークに接続するために必要なデータセットの値を取得しておきます。この値はあとでThreadデバイスを接続するために必要なので記録しておきます。
 
+```
+dataset active -x
+```
+
+```
+0e080000000000000000000300000b35060004001fffe00208dead00beef00cafe0708fddead00beef000005107443e9e3e3f9bf4ea87009b17455b039030a4f70656e54687265616401026f64041043e769eacf5354de6d9ce281ab1b3bdd0c0402a0f7f8
+Done
+```
+
+また、`dataset active` を実行して、Threadネットワークに接続するために必要なネットワークキーやPanID等を取得しておきます。
+
+```
+dataset active
+```
+
+```
+Active Timestamp: 1
+Channel: 19
+Channel Mask: 0x07fff800
+Ext PAN ID: d83b01e82992c0df
+Mesh Local Prefix: fddf:4b94:8740:3ba1::/64
+Network Key: 11112222333344445555666677778888
+Network Name: OpenThread-357b
+PAN ID: 0x357b
+PSKc: 1f2d4df0ebf13f02981077a847facfe4
+Security Policy: 672 onrc 0
+Done
+```
 
 以上でThreadボーダールーターの起動処理は完了です。
 
