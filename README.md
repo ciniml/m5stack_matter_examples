@@ -47,7 +47,9 @@ idf.py flash -p /dev/ttyACM0
 
 ### openthread/ot_br
 
-ESP-IDFのopenthreadサンプルから持ってきたot_brファームウェアです。ot_rcpファームウェアを書き込んだNanoC6と組み合わせてThread Border Routerを構成します。
+ESP-IDFのopenthreadサンプルから持ってきたot_brファームウェアです。NanoC6 1台でWi-Fi Thread coexistenceを利用、もしくはot_rcpファームウェアを書き込んだNanoC6と組み合わせてThread Border Routerを構成します。
+
+#### NanoC6 2台での構成
 
 OT-RCPの接続先をGROVE互換ポートのピンとしています。上記のot_rcpファームウェアでのGROVE互換ポートのピンと対抗するようにTXとRXを入れ替えてあります。
 
@@ -61,6 +63,28 @@ NanoC6のピン配置は以下の通りです。
 ot_rcpを書き込んだNanoC6とot_brを書き込んだNanoC6をGROVE互換ポートで互いに接続し、ot_brを書き込んだNanoC6をPCに接続します。
 
 ![ot_rcpとotbrの接続](./doc/nanoc6_otbr.drawio.svg)
+
+#### NanoC6 1台での構成
+
+ESP-IDFのドキュメントにはWi-FiとThreadのCoexistenceでの共用はできないとありましたが、どうも可能になっているようなので試したところ、NanoC6 1台でのOTBRを構成できました。
+
+設定も単純で、 
+
+```
+CONFIG_SW_COEXIST_ENABLE=y
+CONFIG_OPENTHREAD_RADIO_NATIVE=y
+```
+
+の2つの設定を有効にしてビルドするだけです。上記の設定は `sdkconfig.defaults.coex` として保存してあるので、 `SDKCONFIG_DEFAULTS` 変数にて使用するsdkconfig.defaultsの定義を変更することにより、NanoC6 1台構成でのOTBRのファームウェアをビルドできます。
+
+```
+rm -rf build sdkconfig
+idf.py set-target esp32c6
+export SDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.defaults.esp32c6;sdkconfig.defaults.coex"
+idf.py build
+```
+
+#### 使い方
 
 PC上でシリアルターミナルを開き、以下のコマンドを入力して Wi-Fiの接続設定を行います。 `<SSID>` と `<PASS>` をそれぞれ接続先のWi-FiアクセスポイントのSSIDとパスワードで置き換えます。
 
