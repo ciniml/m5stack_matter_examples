@@ -1,0 +1,26 @@
+{
+  "name": "controller",
+  "version": "1.0.0",
+  "description": "A Matter controller for Matter examples",
+  "main": "index.ts",
+  "scripts": {
+    "start": "ts-node src/index.ts",
+    "build": "tsc -p ."
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@project-chip/matter-node-ble.js": "^0.8.1",
+    "@project-chip/matter-node.js": "^0.8.1",
+    "@project-chip/matter.js": "^0.8.1",
+    "@project-chip/matter.js-tools": "^0.8.1",
+    "@types/pngjs": "^6.0.5",
+    "pngjs": "^7.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.11",
+    "nodemon": "^3.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.4.5"
+  }
+}
