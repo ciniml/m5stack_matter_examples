@@ -73,13 +73,29 @@ async function readPng(path: string): Promise<Buffer> {
             .on("error", function(error) { reject(error); });
     });
 }
+function pngBufferToRGB565(buffer: Buffer): Buffer {
+    const rgb565Buffer = Buffer.alloc(buffer.length / 4 * 2);
+    for (let i = 0, j = 0; i < buffer.length; i += 4, j += 2) {
+        const r = buffer[i] >> 3;
+        const g = buffer[i + 1] >> 2;
+        const b = buffer[i + 2] >> 3;
+        rgb565Buffer[j] = (g << 5) | b;
+        rgb565Buffer[j + 1] = (r << 3) | (g >> 3);
+    }
+    return rgb565Buffer;
+}
 
 class ControllerNode {
     async start() {
         logger.info(`node-matter Controller started`);
 
-        const pushedImage = await readPng("pushed.drawio.png");
-        const releasedImage = await readPng("released.drawio.png");
+        const pushedImage = pngBufferToRGB565(await readPng("pushed.drawio.png"));
+        const releasedImage = pngBufferToRGB565(await readPng("released.drawio.png"));
+
+        try {
+            fs.writeFileSync("/dev/fb1", releasedImage);
+        } catch (error) {
+        }
 
         /**
          * Collect all needed data
@@ -347,7 +363,7 @@ class ControllerNode {
             }
         } finally {
             //await matterServer.close(); // Comment out when subscribes are used, else the connection will be closed
-            setTimeout(() => process.exit(0), 1000000);
+            //setTimeout(() => process.exit(0), 1000000);
         }
     }
 }
