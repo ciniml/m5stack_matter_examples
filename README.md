@@ -2,7 +2,7 @@
 
 ## 概要
 
-M5Stackを使ったMatterのサンプルコード集です。今のところNanoC6によるThread経由のMatterサンプルに必要なものが置いてあります。
+M5Stackを使ったMatterのサンプルコード集です。今のところ[NanoC6](https://docs.m5stack.com/en/core/M5NanoC6)によるThread経由のMatterサンプルに必要なものが置いてあります。
 
 ## ビルド用Dockerイメージ
 
