@@ -5,6 +5,11 @@ data model. Currently it can be only available for ESP32-H2.
 
 See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information about building and flashing the firmware.
 
+## Hardware requirements
+
+- [1x Dual BUTTON Unit](https://docs.m5stack.com/en/unit/dual_button)
+- 1x Grove Cable
+
 ## 1. Additional Environment Setup
 
 No additional setup is required.
