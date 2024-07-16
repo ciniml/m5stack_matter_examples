@@ -1,7 +1,7 @@
 # Matter Contact sensor - Sleepy device
 
 This example creates a Sleepy device using the ESP Matter
-data model. Currently it can be only available for ESP32-H2.
+data model. Currently it can be only available for ESP32-H2 and ESP32-C6.
 
 See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information about building and flashing the firmware.
 
