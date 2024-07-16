@@ -44,4 +44,4 @@ The power usage will be various for different configuration parameters of ICD se
 
 ## 5. Usage
  -  Connect the Grove cable to the M5NanoC6 on one side and to the Dual BUTTON Unit on the other.
- -  Press the red button (GPIO2) to simulate contact closure of the Matter Contact sensor.
+ -  Press the red button (GPIO2) to simulate Matter Contact sensor closure.
