@@ -115,7 +115,7 @@ dataset commit active
 | Parameter         | Value                |
 | :---------------- | -------------------- |
 | `networkname`     | `OpenThread-(PanID)` |
-| `meshlocalprefix` | `(random)/64`.`      |
+| `meshlocalprefix` | `(random)/64`        |
 | `channel`         | `(Random)`           |
 | `panid`           | `(Random)`           |
 | `extendedpanid`   | `(Random)`           |
