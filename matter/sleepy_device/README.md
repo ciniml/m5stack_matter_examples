@@ -1,4 +1,4 @@
-# Sleepy device
+# Matter Contact sensor - Sleepy device
 
 This example creates a Sleepy device using the ESP Matter
 data model. Currently it can be only available for ESP32-H2.
@@ -42,3 +42,5 @@ CONFIG_ICD_SLOW_POLL_INTERVAL_MS=5000
 The power usage will be various for different configuration parameters of ICD server. Below is an example current wave figure for ESP32-H2 Devkit-C. The ICD configurations and radio TX power are also on the picture.
 ![power_record](image/power_record.png)
 
+## 5. Usage
+ -  Press the red button (GPIO2) to simulate contact closure of the Matter Contact sensor.
