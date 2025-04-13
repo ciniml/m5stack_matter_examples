@@ -10,7 +10,7 @@ MATTER_FACTORY_DATA_DIR ?= $(dir $(MATTER_FACTORY_DATA))
 
 build: check_docker
 	mkdir -p .cache
-	$(DOCKER) run -it --rm -u `id -u`:`id -g` -v $(PWD):/work -v $(PWD)/.cache:/.cache -w /work $(IMAGE_NAME) bash -c "idf.py set-target esp32c6 && idf.py build"
+	$(DOCKER) run -it --rm -u `id -u`:`id -g` -v $(shell cd ../../ && pwd):/work -v $(PWD)/.cache:/.cache -w /work/matter/air_quality $(IMAGE_NAME) bash -c "idf.py set-target esp32c6 && idf.py build"
 
 clean:
 	-@$(RM) .cache build managed_components sdkconfig
