@@ -7,7 +7,7 @@ DOCKER := $(shell which docker)
 
 .PHONY: check_docker
 check_docker:
-	@if ! $(DOCKER) images -q $(IMAGE_NAME) > /dev/null 2>&1; then \
+	@if ! $(DOCKER) image inspect $(IMAGE_NAME) > /dev/null; then \
 		echo "Image $(IMAGE_NAME) does not exist"; \
 		exit 1; \
 	fi
