@@ -6,6 +6,8 @@
    CONDITIONS OF ANY KIND, either express or implied.
 */
 
+#include <M5Unified.h>
+
 #include <app/server/CommissioningWindowManager.h>
 #include <app/server/Server.h>
 #include <bsp/esp-bsp.h>
@@ -37,15 +39,15 @@ static void temp_sensor_notification(uint16_t endpoint_id, float temp, void *use
 {
     // schedule the attribute update so that we can report it from matter thread
     chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, temp]() {
-        attribute_t * attribute = attribute::get(endpoint_id,
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
                                                  TemperatureMeasurement::Id,
                                                  TemperatureMeasurement::Attributes::MeasuredValue::Id);
 
         esp_matter_attr_val_t val = esp_matter_invalid(NULL);
-        attribute::get_val(attribute, &val);
+        esp_matter::attribute::get_val(attribute, &val);
         val.val.i16 = static_cast<int16_t>(temp * 100);
 
-        attribute::update(endpoint_id, TemperatureMeasurement::Id, TemperatureMeasurement::Attributes::MeasuredValue::Id, &val);
+        esp_matter::attribute::update(endpoint_id, TemperatureMeasurement::Id, TemperatureMeasurement::Attributes::MeasuredValue::Id, &val);
     });
 }
 
@@ -56,15 +58,15 @@ static void humidity_sensor_notification(uint16_t endpoint_id, float humidity, v
 {
     // schedule the attribute update so that we can report it from matter thread
     chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, humidity]() {
-        attribute_t * attribute = attribute::get(endpoint_id,
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
                                                  RelativeHumidityMeasurement::Id,
                                                  RelativeHumidityMeasurement::Attributes::MeasuredValue::Id);
 
         esp_matter_attr_val_t val = esp_matter_invalid(NULL);
-        attribute::get_val(attribute, &val);
+        esp_matter::attribute::get_val(attribute, &val);
         val.val.u16 = static_cast<uint16_t>(humidity * 100);
 
-        attribute::update(endpoint_id, RelativeHumidityMeasurement::Id, RelativeHumidityMeasurement::Attributes::MeasuredValue::Id, &val);
+        esp_matter::attribute::update(endpoint_id, RelativeHumidityMeasurement::Id, RelativeHumidityMeasurement::Attributes::MeasuredValue::Id, &val);
     });
 }
 
@@ -72,15 +74,15 @@ static void occupancy_sensor_notification(uint16_t endpoint_id, bool occupancy, 
 {
     // schedule the attribute update so that we can report it from matter thread
     chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, occupancy]() {
-        attribute_t * attribute = attribute::get(endpoint_id,
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
                                                  OccupancySensing::Id,
                                                  OccupancySensing::Attributes::Occupancy::Id);
 
         esp_matter_attr_val_t val = esp_matter_invalid(NULL);
-        attribute::get_val(attribute, &val);
+        esp_matter::attribute::get_val(attribute, &val);
         val.val.b = occupancy;
 
-        attribute::update(endpoint_id, OccupancySensing::Id, OccupancySensing::Attributes::Occupancy::Id, &val);
+        esp_matter::attribute::update(endpoint_id, OccupancySensing::Id, OccupancySensing::Attributes::Occupancy::Id, &val);
     });
 }
 
