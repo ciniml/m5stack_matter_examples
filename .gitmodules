@@ -1,6 +1,6 @@
 [submodule "matter/air_quality/components/M5GFX"]
-	path = matter/air_quality/components/M5GFX
+	path = components/M5GFX
 	url = https://github.com/m5stack/M5GFX
 [submodule "matter/air_quality/components/M5Unified"]
-	path = matter/air_quality/components/M5Unified
+	path = components/M5Unified
 	url = https://github.com/m5stack/M5Unified
