@@ -24,6 +24,7 @@
 // drivers implemented by this example
 #include <drivers/shtc3.h>
 #include <drivers/pir.h>
+#include <drivers/epd.h>
 
 static const char *TAG = "app_main";
 
@@ -142,6 +143,7 @@ static esp_err_t app_identification_cb(identification::callback_type_t type, uin
                                        uint8_t effect_variant, void *priv_data)
 {
     ESP_LOGI(TAG, "Identification callback: type: %u, effect: %u, variant: %u", type, effect_id, effect_variant);
+    epd_display_text("Identifying");
     return ESP_OK;
 }
 
@@ -164,6 +166,14 @@ extern "C" void app_main()
     /* Initialize push button on the dev-kit to reset the device */
     esp_err_t err = factory_reset_button_register();
     ABORT_APP_ON_FAILURE(ESP_OK == err, ESP_LOGE(TAG, "Failed to initialize reset button, err:%d", err));
+
+    /* Initialize e-paper display */
+    err = epd_init();
+    ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to initialize e-paper display, err:%d", err));
+
+    /* Display Hello World on the e-paper display */
+    err = epd_display_text("Hello World");
+    ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to display text on e-paper display, err:%d", err));
 
     /* Create a Matter node and add the mandatory Root Node device type on endpoint 0 */
     node::config_t node_config;
