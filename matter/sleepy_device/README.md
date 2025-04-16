@@ -1,7 +1,8 @@
 # Sleepy device
 
-This example creates a Sleepy device using the ESP Matter
+This example creates a Matter Sleepy End Device over OpenThread using the ESP Matter
 data model. Currently it can be only available for ESP32-H2.
+It implements a Matter contact sensor.
 
 See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information about building and flashing the firmware.
 
