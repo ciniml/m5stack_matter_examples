@@ -1,9 +1,14 @@
-# Sleepy device
+# Matter Contact sensor - Sleepy device
 
 This example creates a Sleepy device using the ESP Matter
-data model. Currently it can be only available for ESP32-H2.
+data model. Currently it can be only available for ESP32-H2 and ESP32-C6.
 
 See the [docs](https://docs.espressif.com/projects/esp-matter/en/latest/esp32/developing.html) for more information about building and flashing the firmware.
+
+## Hardware requirements
+
+- [1x Dual BUTTON Unit](https://docs.m5stack.com/en/unit/dual_button)
+- 1x Grove Cable
 
 ## 1. Additional Environment Setup
 
@@ -37,3 +42,6 @@ CONFIG_ICD_SLOW_POLL_INTERVAL_MS=5000
 The power usage will be various for different configuration parameters of ICD server. Below is an example current wave figure for ESP32-H2 Devkit-C. The ICD configurations and radio TX power are also on the picture.
 ![power_record](image/power_record.png)
 
+## 5. Usage
+ -  Connect the Grove cable to the M5NanoC6 on one side and to the Dual BUTTON Unit on the other.
+ -  Press the red button (GPIO2) to simulate Matter Contact sensor closure.
