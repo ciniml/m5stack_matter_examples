@@ -19,6 +19,7 @@ set(EXTRA_COMPONENT_DIRS
     "${ESP_MATTER_PATH}/examples/common"
     "${MATTER_SDK_PATH}/config/esp32/components"
     "${ESP_MATTER_PATH}/components"
+    "../../components"
     ${extra_components_dirs_append})
 
 project(air_quality)

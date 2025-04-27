@@ -15,14 +15,14 @@
 #include <esp_log.h>
 
 // Pin definitions for the e-paper display
-#define EPD_MOSI 10  // SPI MOSI pin
-#define EPD_MISO -1  // Not used, but required for SPI config
-#define EPD_SCLK 11  // SPI SCLK pin
-#define EPD_DC    9  // Data/Command control pin
-#define EPD_CS    8  // Chip select pin
-#define EPD_RST   18 // Reset pin
-#define EPD_BUSY  19 // Busy pin
-#define EPD_FREQ  20000000 // SPI frequency
+#define EPD_MOSI 6
+#define EPD_MISO -1
+#define EPD_SCLK 5
+#define EPD_DC   3
+#define EPD_FREQ 40000000
+#define EPD_CS   4
+#define EPD_RST  2
+#define EPD_BUSY 1
 
 // E-paper display class derived from LGFX_Device
 class AirQ_EPD : public lgfx::LGFX_Device {
