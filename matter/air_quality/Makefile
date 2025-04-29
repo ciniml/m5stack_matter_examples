@@ -12,12 +12,19 @@ REPOSITORY_ROOT := $(shell cd ../../ && pwd)
 
 $(info REPOSITORY_ROOT=$(REPOSITORY_ROOT))
 
-build: check_docker
+build: check_docker build/config
 	mkdir -p .cache
-	$(DOCKER) run -it --rm -u `id -u`:`id -g` -v $(REPOSITORY_ROOT):$(REPOSITORY_ROOT) -v $(PWD)/.cache:/.cache -w $(REPOSITORY_ROOT)/matter/air_quality $(IMAGE_NAME) bash -c "idf.py set-target esp32s3 && idf.py build"
+	$(DOCKER) run -it --rm -u `id -u`:`id -g` -v $(REPOSITORY_ROOT):$(REPOSITORY_ROOT) -v $(PWD)/.cache:/.cache -w $(REPOSITORY_ROOT)/matter/air_quality $(IMAGE_NAME) bash -c "idf.py build"
+
+build/config:
+	mkdir -p .cache
+	$(DOCKER) run -it --rm -u `id -u`:`id -g` -v $(REPOSITORY_ROOT):$(REPOSITORY_ROOT) -v $(PWD)/.cache:/.cache -w $(REPOSITORY_ROOT)/matter/air_quality $(IMAGE_NAME) bash -c "idf.py set-target esp32s3"
 
 clean:
 	-@$(RM) -r dependencies.lock .cache build managed_components sdkconfig
+
+menuconfig:
+	$(DOCKER) run -it --rm --device=$(PORT):$(PORT):rw -v $(REPOSITORY_ROOT):$(REPOSITORY_ROOT) -v $(PWD)/.cache:/.cache -w $(REPOSITORY_ROOT)/matter/air_quality $(IMAGE_NAME) idf.py menuconfig
 
 flash:
 	$(DOCKER) run -it --rm --device=$(PORT):$(PORT):rw -v $(REPOSITORY_ROOT):$(REPOSITORY_ROOT) -v $(PWD)/.cache:/.cache -w $(REPOSITORY_ROOT)/matter/air_quality $(IMAGE_NAME) idf.py flash --port $(PORT)

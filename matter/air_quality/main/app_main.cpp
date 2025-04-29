@@ -21,12 +21,30 @@
 #include <app_reset.h>
 #include <common_macros.h>
 
-// drivers implemented by this example
-#include <drivers/shtc3.h>
-#include <drivers/pir.h>
 #include <drivers/epd.h>
 
+#include <scd4x_i2c.h>
+#include <sensirion_common.h>
+#include <sensirion_i2c_hal.h>
+#include <sensirion_i2c_esp32_config.h>
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+
+#include <inttypes.h>
+#include <mutex>
+
 static const char *TAG = "app_main";
+
+typedef struct scd40_sensor_data_s {
+    uint16_t co2_concentration;
+    int32_t temperature;
+    int32_t relative_humidity;
+} scd40_sensor_data_t;
+
+static scd40_sensor_data_t s_sensor_data = {0};
+static std::mutex s_sensor_data_mutex;
+static TaskHandle_t s_sensor_task_handle = nullptr;
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
@@ -158,6 +176,172 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16
     return ESP_OK;
 }
 
+static void initialize_scd4x()
+{
+    esp32_i2c_config_t config {
+        100000, // freq
+        SCD41_I2C_ADDR_62, // addr
+        I2C_NUM_0, // port
+        GPIO_NUM_11, // sda
+        GPIO_NUM_12, // scl
+        true, // enable_pullup
+    };
+
+    sensirion_i2c_config_esp32(&config);
+
+    sensirion_i2c_hal_init();
+    scd4x_init(SCD41_I2C_ADDR_62);
+
+    int16_t error = scd4x_wake_up();
+    if (error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing wake_up(): %" PRIi16, error);
+        return;
+    }
+
+    error = scd4x_stop_periodic_measurement();
+    if (error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing stop_periodic_measurement(): %" PRIi16, error);
+        return;
+    }
+
+    error = scd4x_reinit();
+    if (error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing reinit(): %" PRIi16, error);
+        return;
+    }
+
+    // Read out information about the sensor
+    uint16_t serial_number[3] = {0};
+    error = scd4x_get_serial_number(serial_number, 3);
+    if (error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing get_serial_number(): %" PRIi16, error);
+        return;
+    }
+    uint64_t serial_as_int = 0;
+    sensirion_common_to_integer((uint8_t*)serial_number, (uint8_t*)&serial_as_int,
+                                LONG_INTEGER, 6);
+    ESP_LOGI(TAG, "serial number: 0x%" PRIx64, serial_as_int);
+
+    return;
+}
+
+static void dump_scd4x()
+{
+    int16_t error = scd4x_start_periodic_measurement();
+    if (error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing start_periodic_measurement(): %" PRIi16, error);
+        return;
+    }
+    //
+    // If low-power mode is required, switch to the low power
+    // measurement function instead of the standard measurement
+    // function above. Check out the header file for the definition.
+    //
+    bool data_ready = false;
+    uint16_t co2_concentration = 0;
+    int32_t temperature = 0;
+    int32_t relative_humidity = 0;
+    uint16_t repetition = 0;
+    for (repetition = 0; repetition < 1; repetition++) {
+        //
+        // Slow down the sampling to 0.2Hz.
+        //
+        sensirion_i2c_hal_sleep_usec(5000000);
+        //
+        // If ambient pressure compensation during measurement
+        // is required, you should call the respective functions here.
+        // Check out the header file for the function definition.
+        error = scd4x_get_data_ready_status(&data_ready);
+        if (error != NO_ERROR) {
+            ESP_LOGE(TAG, "error executing get_data_ready_status(): %" PRIi16, error);
+            continue;
+        }
+        while (!data_ready) {
+            sensirion_i2c_hal_sleep_usec(100000);
+            error = scd4x_get_data_ready_status(&data_ready);
+            if (error != NO_ERROR) {
+                ESP_LOGE(TAG, "error executing get_data_ready_status(): %" PRIi16, error);
+                continue;
+            }
+        }
+        error = scd4x_read_measurement(&co2_concentration, &temperature,
+                                       &relative_humidity);
+        if (error != NO_ERROR) {
+            ESP_LOGE(TAG, "error executing read_measurement(): %" PRIi16, error);
+            continue;
+        }
+        
+        // Print results in physical units.
+        ESP_LOGI(TAG, "CO2 concentration [ppm]: %" PRIu16, co2_concentration);
+        ESP_LOGI(TAG, "Temperature [m°C] : %" PRIi32, temperature);
+        ESP_LOGI(TAG, "Humidity [mRH]: %" PRIi32, relative_humidity);
+    }
+}
+
+typedef struct scd4x_task_args_s {
+    endpoint_t temperature_endpoint_id;
+    endpoint_t humidity_endpoint_id;
+    endpoint_t co2_endpoint_id;
+} scd4x_task_args_t;
+
+static void scd4x_task(void* args_)
+{
+    auto args = static_cast<scd4x_task_args_t*>(args_);
+
+    ESP_LOGI(TAG, "SCD4x Measurement task started");
+        
+    TickType_t wake_time = xTaskGetTickCount();
+
+    if (int16_t error = scd4x_start_periodic_measurement(); error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing start_periodic_measurement(): %" PRIi16, error);
+        abort();
+    }
+
+    while(true) {
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(30000));
+        ESP_LOGI(TAG, "SCD4x Measurement begin.");
+
+        bool data_ready = false;
+        while(true) {
+            int16_t error = scd4x_get_data_ready_status(&data_ready);
+            if (error != NO_ERROR) {
+                ESP_LOGE(TAG, "error executing get_data_ready_status(): %" PRIi16, error);
+                continue;
+            }
+            if( data_ready ) break;
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        uint16_t co2_concentration = 0;
+        int32_t temperature = 0;
+        int32_t relative_humidity = 0;
+
+        if (int16_t error = scd4x_read_measurement(&co2_concentration, &temperature, &relative_humidity); error != NO_ERROR) {
+            ESP_LOGE(TAG, "error executing read_measurement(): %" PRIi16, error);
+            continue;
+        }
+        
+        // Print results in physical units.
+        ESP_LOGI(TAG, "CO2 concentration [ppm]: %" PRIu16, co2_concentration);
+        ESP_LOGI(TAG, "Temperature [m°C] : %" PRIi32, temperature);
+        ESP_LOGI(TAG, "Humidity [mRH]: %" PRIi32, relative_humidity);
+
+        // Lock and update the sensor data
+        {
+            std::lock_guard<std::mutex> lock(s_sensor_data_mutex);
+            s_sensor_data.co2_concentration = co2_concentration;
+            s_sensor_data.temperature = temperature;
+            s_sensor_data.relative_humidity = relative_humidity;
+        }
+
+        // Update Matter attributes
+        temp_sensor_notification(args->temperature_endpoint_id, temperature * 1.0e-3f, nullptr);
+        humidity_sensor_notification(args->humidity_endpoint_id, relative_humidity * 1.0e-3f, nullptr);
+        // TODO: Update CO2 sensor
+    }
+
+}
+
 extern "C" void app_main()
 {
     /* Initialize the ESP NVS layer */
@@ -190,37 +374,35 @@ extern "C" void app_main()
     endpoint_t * humidity_sensor_ep = humidity_sensor::create(node, &humidity_sensor_config, ENDPOINT_FLAG_NONE, NULL);
     ABORT_APP_ON_FAILURE(humidity_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create humidity_sensor endpoint"));
 
-    // initialize temperature and humidity sensor driver (shtc3)
-    static shtc3_sensor_config_t shtc3_config = {
-        .temperature = {
-            .cb = temp_sensor_notification,
-            .endpoint_id = endpoint::get_id(temp_sensor_ep),
-        },
-        .humidity = {
-            .cb = humidity_sensor_notification,
-            .endpoint_id = endpoint::get_id(humidity_sensor_ep),
-        },
-    };
-    err = shtc3_sensor_init(&shtc3_config);
-    ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to initialize temperature sensor driver"));
+    
+    /* Initialize the SCD4x sensor */
+    initialize_scd4x();
+    scd4x_task_args_t* scd4x_task_args = new scd4x_task_args_t;
+    scd4x_task_args->temperature_endpoint_id = endpoint::get_id(temp_sensor_ep);
+    scd4x_task_args->humidity_endpoint_id = endpoint::get_id(humidity_sensor_ep);
+    //scd4x_task_args->co2_endpoint_id = endpoint::get_id(co2_sensor_ep);
+    if( BaseType_t result = xTaskCreatePinnedToCore(scd4x_task, "scd4x_task", 4096, scd4x_task_args, 5, &s_sensor_task_handle, APP_CPU_NUM); result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create SCD4x task");
+        abort();
+    }
 
-    // add the occupancy sensor
-    occupancy_sensor::config_t occupancy_sensor_config;
-    occupancy_sensor_config.occupancy_sensing.occupancy_sensor_type =
-        chip::to_underlying(OccupancySensing::OccupancySensorTypeEnum::kPir);
-    occupancy_sensor_config.occupancy_sensing.occupancy_sensor_type_bitmap =
-        chip::to_underlying(OccupancySensing::OccupancySensorTypeBitmap::kPir);
+    // // add the occupancy sensor
+    // occupancy_sensor::config_t occupancy_sensor_config;
+    // occupancy_sensor_config.occupancy_sensing.occupancy_sensor_type =
+    //     chip::to_underlying(OccupancySensing::OccupancySensorTypeEnum::kPir);
+    // occupancy_sensor_config.occupancy_sensing.occupancy_sensor_type_bitmap =
+    //     chip::to_underlying(OccupancySensing::OccupancySensorTypeBitmap::kPir);
 
-    endpoint_t * occupancy_sensor_ep = occupancy_sensor::create(node, &occupancy_sensor_config, ENDPOINT_FLAG_NONE, NULL);
-    ABORT_APP_ON_FAILURE(occupancy_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create occupancy_sensor endpoint"));
+    // endpoint_t * occupancy_sensor_ep = occupancy_sensor::create(node, &occupancy_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    // ABORT_APP_ON_FAILURE(occupancy_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create occupancy_sensor endpoint"));
 
-    // initialize occupancy sensor driver (pir)
-    static pir_sensor_config_t pir_config = {
-        .cb = occupancy_sensor_notification,
-        .endpoint_id = endpoint::get_id(occupancy_sensor_ep),
-    };
-    err = pir_sensor_init(&pir_config);
-    ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to initialize occupancy sensor driver"));
+    // // initialize occupancy sensor driver (pir)
+    // static pir_sensor_config_t pir_config = {
+    //     .cb = occupancy_sensor_notification,
+    //     .endpoint_id = endpoint::get_id(occupancy_sensor_ep),
+    // };
+    // err = pir_sensor_init(&pir_config);
+    // ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to initialize occupancy sensor driver"));
 
 #if CHIP_DEVICE_CONFIG_ENABLE_THREAD
     /* Set OpenThread platform config */

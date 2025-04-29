@@ -31,15 +31,15 @@ dependencies:
   ot_led:
     component_hash: null
     source:
-      path: /home/kenta/esp-idf/v5.2/examples/openthread/ot_common_components/ot_led
+      path: /home/kenta/esp-idf/5.2/examples/openthread/ot_common_components/ot_led
       type: local
     version: '*'
   protocol_examples_common:
     component_hash: null
     source:
-      path: /home/kenta/esp-idf/v5.2/examples/common_components/protocol_examples_common
+      path: /home/kenta/esp-idf/5.2/examples/common_components/protocol_examples_common
       type: local
     version: '*'
-manifest_hash: 6618018fab8ed3b1b9b96a14c4622f343fdb74ba0f69d3c38339e6cab210db64
+manifest_hash: ef93da8d5628fb1a084e5e3e4ec8f936989394366ac0d5e67befb09d79e72b13
 target: esp32c6
 version: 1.0.0

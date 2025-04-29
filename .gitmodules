@@ -4,3 +4,6 @@
 [submodule "matter/air_quality/components/M5Unified"]
 	path = components/M5Unified
 	url = https://github.com/m5stack/M5Unified
+[submodule "components/scd4x-idf"]
+	path = components/scd4x-idf
+	url = https://github.com/ciniml/embedded-i2c-scd4x.git
