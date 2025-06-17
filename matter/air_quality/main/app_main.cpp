@@ -24,17 +24,26 @@
 #include <drivers/epd.h>
 
 #include <scd4x_i2c.h>
+#include <sen5x_i2c.h>
 #include <sensirion_common.h>
 #include <sensirion_i2c_hal.h>
 #include <sensirion_i2c_esp32_config.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <driver/i2c.h>
+#include <driver/gpio.h>
 
 #include <inttypes.h>
 #include <mutex>
 
 static const char *TAG = "app_main";
+
+// I2C bus configuration - shared between sensors
+static bool s_i2c_initialized = false;
+
+// SEN55 power control
+#define SEN55_POWER_GPIO GPIO_NUM_10
 
 typedef struct scd40_sensor_data_s {
     uint16_t co2_concentration;
@@ -42,9 +51,23 @@ typedef struct scd40_sensor_data_s {
     int32_t relative_humidity;
 } scd40_sensor_data_t;
 
+typedef struct sen55_sensor_data_s {
+    uint16_t mass_concentration_pm1p0;
+    uint16_t mass_concentration_pm2p5;
+    uint16_t mass_concentration_pm4p0;
+    uint16_t mass_concentration_pm10p0;
+    int16_t ambient_humidity;
+    int16_t ambient_temperature;
+    int16_t voc_index;
+    int16_t nox_index;
+} sen55_sensor_data_t;
+
 static scd40_sensor_data_t s_sensor_data = {0};
+static sen55_sensor_data_t s_sen55_data = {0};
 static std::mutex s_sensor_data_mutex;
+static std::mutex s_sen55_data_mutex;
 static TaskHandle_t s_sensor_task_handle = nullptr;
+static TaskHandle_t s_sen55_task_handle = nullptr;
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
@@ -176,44 +199,87 @@ static esp_err_t app_attribute_update_cb(attribute::callback_type_t type, uint16
     return ESP_OK;
 }
 
-static void initialize_scd4x()
+static void scan_i2c_bus()
 {
+    ESP_LOGI(TAG, "Scanning I2C bus...");
+    uint8_t devices_found = 0;
+    
+    i2c_cmd_handle_t cmd;
+    for (uint8_t addr = 0x08; addr < 0x78; addr++) {
+        // Try to communicate with device at this address
+        cmd = i2c_cmd_link_create();
+        i2c_master_start(cmd);
+        i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+        i2c_master_stop(cmd);
+        esp_err_t ret = i2c_master_cmd_begin(I2C_NUM_0, cmd, 50 / portTICK_PERIOD_MS);
+        i2c_cmd_link_delete(cmd);
+        
+        if (ret == ESP_OK) {
+            ESP_LOGI(TAG, "I2C device found at address 0x%02x", addr);
+            devices_found++;
+        }
+    }
+    
+    ESP_LOGI(TAG, "I2C scan complete. Found %d devices", devices_found);
+}
+
+static void initialize_i2c_bus()
+{
+    if (s_i2c_initialized) {
+        ESP_LOGI(TAG, "I2C bus already initialized");
+        return;
+    }
+
     esp32_i2c_config_t config {
         100000, // freq
-        SCD41_I2C_ADDR_62, // addr
+        0x00, // addr - not used for initialization
         I2C_NUM_0, // port
         GPIO_NUM_11, // sda
         GPIO_NUM_12, // scl
         true, // enable_pullup
     };
 
+    ESP_LOGI(TAG, "Initializing I2C bus on port %d (SDA: GPIO%d, SCL: GPIO%d)", 
+             config.port, config.sda, config.scl);
+    
     sensirion_i2c_config_esp32(&config);
-
     sensirion_i2c_hal_init();
+    
+    s_i2c_initialized = true;
+    ESP_LOGI(TAG, "I2C bus initialization complete");
+    
+    // Scan for I2C devices
+    scan_i2c_bus();
+}
+
+static void initialize_scd4x()
+{
+    // I2C bus should already be initialized
+    if (!s_i2c_initialized) {
+        ESP_LOGE(TAG, "I2C bus not initialized before SCD4x initialization");
+        return;
+    }
+
     scd4x_init(SCD41_I2C_ADDR_62);
 
-    int16_t error = scd4x_wake_up();
-    if (error != NO_ERROR) {
+    if (int16_t error = scd4x_wake_up(); error != NO_ERROR) {
         ESP_LOGE(TAG, "error executing wake_up(): %" PRIi16, error);
         return;
     }
 
-    error = scd4x_stop_periodic_measurement();
-    if (error != NO_ERROR) {
+    if (int16_t error = scd4x_stop_periodic_measurement(); error != NO_ERROR) {
         ESP_LOGE(TAG, "error executing stop_periodic_measurement(): %" PRIi16, error);
         return;
     }
 
-    error = scd4x_reinit();
-    if (error != NO_ERROR) {
+    if (int16_t error = scd4x_reinit(); error != NO_ERROR) {
         ESP_LOGE(TAG, "error executing reinit(): %" PRIi16, error);
         return;
     }
 
     // Read out information about the sensor
     uint16_t serial_number[3] = {0};
-    error = scd4x_get_serial_number(serial_number, 3);
-    if (error != NO_ERROR) {
+    if (int16_t error = scd4x_get_serial_number(serial_number, 3); error != NO_ERROR) {
         ESP_LOGE(TAG, "error executing get_serial_number(): %" PRIi16, error);
         return;
     }
@@ -222,6 +288,104 @@ static void initialize_scd4x()
                                 LONG_INTEGER, 6);
     ESP_LOGI(TAG, "serial number: 0x%" PRIx64, serial_as_int);
 
+    return;
+}
+
+static void configure_sen55_power()
+{
+    ESP_LOGI(TAG, "Configuring SEN55 power control on GPIO%d", SEN55_POWER_GPIO);
+    
+    // Configure GPIO10 as output for SEN55 power control
+    gpio_config_t io_conf = {
+        .pin_bit_mask = (1ULL << SEN55_POWER_GPIO),
+        .mode = GPIO_MODE_OUTPUT,
+        .pull_up_en = GPIO_PULLUP_DISABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
+    };
+    if (esp_err_t ret = gpio_config(&io_conf); ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to configure SEN55 power GPIO: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    // Set GPIO10 to LOW to enable SEN55 power
+    if (esp_err_t ret = gpio_set_level(SEN55_POWER_GPIO, 0); ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set SEN55 power GPIO to LOW: %s", esp_err_to_name(ret));
+        return;
+    }
+    
+    ESP_LOGI(TAG, "SEN55 power enabled (GPIO%d set to LOW)", SEN55_POWER_GPIO);
+    
+    // Wait for SEN55 to power up
+    ESP_LOGI(TAG, "Waiting 1 second for SEN55 to power up...");
+    vTaskDelay(pdMS_TO_TICKS(1000));
+}
+
+static void initialize_sen55()
+{
+    ESP_LOGI(TAG, "Starting SEN55 initialization...");
+    
+    // I2C bus should already be initialized
+    if (!s_i2c_initialized) {
+        ESP_LOGE(TAG, "I2C bus not initialized before SEN55 initialization");
+        return;
+    }
+    ESP_LOGI(TAG, "I2C bus is initialized, proceeding with SEN55 setup");
+
+    // Configure and enable SEN55 power
+    configure_sen55_power();
+
+    // Check if SEN55 is present at expected address (0x69)
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (0x69 << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_stop(cmd);
+    esp_err_t probe_result = i2c_master_cmd_begin(I2C_NUM_0, cmd, 100 / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+    
+    if (probe_result != ESP_OK) {
+        ESP_LOGE(TAG, "SEN55 not found at address 0x69, probe result: %s", esp_err_to_name(probe_result));
+        ESP_LOGE(TAG, "Please check SEN55 wiring and power supply");
+        return;
+    }
+    ESP_LOGI(TAG, "SEN55 detected at address 0x69");
+
+    // SEN5X does not have an explicit init function, start with device reset
+    ESP_LOGI(TAG, "Resetting SEN55 device...");
+    if (int16_t error = sen5x_device_reset(); error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing sen5x_device_reset(): %" PRIi16, error);
+        ESP_LOGE(TAG, "SEN55 device reset failed - aborting initialization");
+        return;
+    }
+    ESP_LOGI(TAG, "SEN55 device reset successful");
+
+    // Wait for sensor to reset
+    ESP_LOGI(TAG, "Waiting 1 second for SEN55 to complete reset...");
+    sensirion_i2c_hal_sleep_usec(1000000);
+
+    // Read serial number
+    ESP_LOGI(TAG, "Reading SEN55 serial number...");
+    unsigned char serial_number[32] = {0};
+    uint8_t serial_number_size = 32;
+    if (int16_t error = sen5x_get_serial_number(serial_number, serial_number_size); error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing sen5x_get_serial_number(): %" PRIi16, error);
+        ESP_LOGE(TAG, "Failed to read SEN55 serial number - continuing anyway");
+    } else {
+        ESP_LOGI(TAG, "SEN55 serial number: %s", serial_number);
+    }
+
+    // Read product name
+    ESP_LOGI(TAG, "Reading SEN55 product name...");
+    unsigned char product_name[32] = {0};
+    uint8_t product_name_size = 32;
+    if (int16_t error = sen5x_get_product_name(product_name, product_name_size); error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing sen5x_get_product_name(): %" PRIi16, error);
+        ESP_LOGE(TAG, "Failed to read SEN55 product name - continuing anyway");
+    } else {
+        ESP_LOGI(TAG, "SEN55 product name: %s", product_name);
+    }
+
+    ESP_LOGI(TAG, "SEN55 initialization completed successfully");
     return;
 }
 
@@ -342,6 +506,92 @@ static void scd4x_task(void* args_)
 
 }
 
+static void sen55_task(void* args_)
+{
+    ESP_LOGI(TAG, "SEN55 Measurement task started");
+
+    TickType_t wake_time = xTaskGetTickCount();
+
+    // Try to start measurement, with retries
+    int retry_count = 0;
+    const int max_retries = 3;
+    
+    while (retry_count < max_retries) {
+        if (int16_t error = sen5x_start_measurement(); error != NO_ERROR) {
+            ESP_LOGE(TAG, "error executing sen5x_start_measurement() (attempt %d/%d): %" PRIi16, 
+                     retry_count + 1, max_retries, error);
+            retry_count++;
+            if (retry_count >= max_retries) {
+                ESP_LOGE(TAG, "Failed to start SEN55 measurement after %d attempts, task will exit", max_retries);
+                vTaskDelete(NULL);
+                return;
+            }
+            vTaskDelay(pdMS_TO_TICKS(1000)); // Wait 1 second before retry
+        } else {
+            ESP_LOGI(TAG, "SEN55 measurement started successfully");
+            break;
+        }
+    }
+
+    while(true) {
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(1000)); // SEN55 has 1Hz output rate
+        ESP_LOGI(TAG, "SEN55 Measurement begin.");
+
+        bool data_ready = false;
+        while(true) {
+            if (int16_t error = sen5x_read_data_ready(&data_ready); error != NO_ERROR) {
+                ESP_LOGE(TAG, "error executing sen5x_read_data_ready(): %" PRIi16, error);
+                continue;
+            }
+            if( data_ready ) break;
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+
+        uint16_t mass_concentration_pm1p0;
+        uint16_t mass_concentration_pm2p5;
+        uint16_t mass_concentration_pm4p0;
+        uint16_t mass_concentration_pm10p0;
+        int16_t ambient_humidity;
+        int16_t ambient_temperature;
+        int16_t voc_index;
+        int16_t nox_index;
+
+        if (int16_t error = sen5x_read_measured_values(
+            &mass_concentration_pm1p0, &mass_concentration_pm2p5,
+            &mass_concentration_pm4p0, &mass_concentration_pm10p0,
+            &ambient_humidity, &ambient_temperature, &voc_index,
+            &nox_index); error != NO_ERROR) {
+            ESP_LOGE(TAG, "error executing sen5x_read_measured_values(): %" PRIi16, error);
+            continue;
+        }
+
+        // Print results in physical units (values are scaled by factor 10 or 100)
+        ESP_LOGI(TAG, "PM1.0 concentration [µg/m³]: %.1f", mass_concentration_pm1p0 / 10.0f);
+        ESP_LOGI(TAG, "PM2.5 concentration [µg/m³]: %.1f", mass_concentration_pm2p5 / 10.0f);
+        ESP_LOGI(TAG, "PM4.0 concentration [µg/m³]: %.1f", mass_concentration_pm4p0 / 10.0f);
+        ESP_LOGI(TAG, "PM10.0 concentration [µg/m³]: %.1f", mass_concentration_pm10p0 / 10.0f);
+        ESP_LOGI(TAG, "Ambient humidity [%%RH]: %.1f", ambient_humidity / 100.0f);
+        ESP_LOGI(TAG, "Ambient temperature [°C]: %.1f", ambient_temperature / 200.0f);
+        ESP_LOGI(TAG, "VOC index: %.1f", voc_index / 10.0f);
+        ESP_LOGI(TAG, "NOx index: %.1f", nox_index / 10.0f);
+
+        // Lock and update the sensor data
+        {
+            std::lock_guard<std::mutex> lock(s_sen55_data_mutex);
+            s_sen55_data.mass_concentration_pm1p0 = mass_concentration_pm1p0;
+            s_sen55_data.mass_concentration_pm2p5 = mass_concentration_pm2p5;
+            s_sen55_data.mass_concentration_pm4p0 = mass_concentration_pm4p0;
+            s_sen55_data.mass_concentration_pm10p0 = mass_concentration_pm10p0;
+            s_sen55_data.ambient_humidity = ambient_humidity;
+            s_sen55_data.ambient_temperature = ambient_temperature;
+            s_sen55_data.voc_index = voc_index;
+            s_sen55_data.nox_index = nox_index;
+        }
+
+        // Note: Matter endpoint updates would go here if implemented
+    }
+}
+
 extern "C" void app_main()
 {
     /* Initialize the ESP NVS layer */
@@ -375,6 +625,9 @@ extern "C" void app_main()
     ABORT_APP_ON_FAILURE(humidity_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create humidity_sensor endpoint"));
 
     
+    /* Initialize shared I2C bus for sensors */
+    initialize_i2c_bus();
+
     /* Initialize the SCD4x sensor */
     initialize_scd4x();
     scd4x_task_args_t* scd4x_task_args = new scd4x_task_args_t;
@@ -383,6 +636,13 @@ extern "C" void app_main()
     //scd4x_task_args->co2_endpoint_id = endpoint::get_id(co2_sensor_ep);
     if( BaseType_t result = xTaskCreatePinnedToCore(scd4x_task, "scd4x_task", 4096, scd4x_task_args, 5, &s_sensor_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SCD4x task");
+        abort();
+    }
+
+    /* Initialize the SEN55 sensor */
+    initialize_sen55();
+    if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 4096, nullptr, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create SEN55 task");
         abort();
     }
 
