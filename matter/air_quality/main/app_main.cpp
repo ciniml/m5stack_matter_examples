@@ -248,8 +248,10 @@ static void initialize_i2c_bus()
     s_i2c_initialized = true;
     ESP_LOGI(TAG, "I2C bus initialization complete");
     
+#ifdef CONFIG_I2C_SCAN_ENABLE
     // Scan for I2C devices
     scan_i2c_bus();
+#endif
 }
 
 static void initialize_scd4x()
@@ -335,7 +337,9 @@ static void initialize_sen55()
     // Configure and enable SEN55 power
     configure_sen55_power();
 
+#ifdef CONFIG_I2C_DEVICE_PROBE_ENABLE
     // Check if SEN55 is present at expected address (0x69)
+    ESP_LOGI(TAG, "Probing SEN55 at address 0x69...");
     i2c_cmd_handle_t cmd = i2c_cmd_link_create();
     i2c_master_start(cmd);
     i2c_master_write_byte(cmd, (0x69 << 1) | I2C_MASTER_WRITE, true);
@@ -349,6 +353,9 @@ static void initialize_sen55()
         return;
     }
     ESP_LOGI(TAG, "SEN55 detected at address 0x69");
+#else
+    ESP_LOGI(TAG, "Skipping I2C probe (disabled in config)");
+#endif
 
     // SEN5X does not have an explicit init function, start with device reset
     ESP_LOGI(TAG, "Resetting SEN55 device...");

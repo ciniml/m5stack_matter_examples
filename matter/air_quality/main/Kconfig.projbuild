@@ -1,21 +1,17 @@
-menu "Example Configuration"
+menu "Air Quality Sensor Unit Configuration"
 
-    config SHTC3_I2C_SDA_PIN
-        int "I2C SDA Pin"
-        default 4
+    config I2C_SCAN_ENABLE
+        bool "Enable I2C bus scanning on startup"
+        default n
         help
-            GPIO number for I2C master data
+            Enable scanning of I2C bus to detect connected devices.
+            This is useful for debugging but may slow down startup.
 
-    config SHTC3_I2C_SCL_PIN
-        int "I2C SCL Pin"
-        default 5
+    config I2C_DEVICE_PROBE_ENABLE
+        bool "Enable I2C device probe before sensor initialization"
+        default n
         help
-            GPIO number for I2C master clock
-
-    config PIR_DATA_PIN
-        int "PIR Data Pin"
-        default 7
-        help
-            Default PIR Data Pin
+            Enable probing of specific I2C devices before sensor initialization.
+            This helps with debugging sensor detection issues but adds overhead.
 
 endmenu
