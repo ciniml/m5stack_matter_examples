@@ -7,6 +7,7 @@
  */
 
 #include "epd.h"
+#include <cstring>
 
 static const char *TAG = "epd";
 
@@ -38,12 +39,46 @@ esp_err_t epd_init(void)
 
 esp_err_t epd_display_text(const char* text)
 {
-    ESP_LOGI(TAG, "Displaying text: %s", text);
+    ESP_LOGI(TAG, "Displaying sensor data");
     
     canvas.fillSprite(TFT_WHITE);
     
-    canvas.setFont(&fonts::FreeSansBold18pt7b);
-    canvas.drawString(text, epd.width() / 2, epd.height() / 2);
+    // Use smaller font for sensor data display
+    canvas.setFont(&fonts::Font0);
+    canvas.setTextDatum(top_left);
+    
+    // Split text into lines and display with proper spacing
+    const char* line_start = text;
+    const char* line_end;
+    int y = 3;  // Start 3 pixels from top
+    const int line_height = 10;  // Line spacing for Font0 + 2px padding
+    
+    while (*line_start && y < epd.height() - line_height) {
+        // Find end of current line
+        line_end = strchr(line_start, '\n');
+        if (line_end == nullptr) {
+            line_end = line_start + strlen(line_start);
+        }
+        
+        // Create temporary string for current line
+        size_t line_len = line_end - line_start;
+        char line_buffer[128];
+        if (line_len < sizeof(line_buffer)) {
+            strncpy(line_buffer, line_start, line_len);
+            line_buffer[line_len] = '\0';
+            
+            // Draw the line
+            canvas.drawString(line_buffer, 5, y);
+            y += line_height;
+        }
+        
+        // Move to next line
+        if (*line_end == '\n') {
+            line_start = line_end + 1;
+        } else {
+            break;  // End of string
+        }
+    }
     
     canvas.pushSprite(0, 0);
     epd.waitDisplay();
