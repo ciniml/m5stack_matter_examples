@@ -14,4 +14,13 @@ menu "Air Quality Sensor Unit Configuration"
             Enable probing of specific I2C devices before sensor initialization.
             This helps with debugging sensor detection issues but adds overhead.
 
+    config EPD_UPDATE_INTERVAL_SEC
+        int "EPD display update interval in seconds"
+        range 10 300
+        default 30
+        help
+            Interval for updating the EPD display with sensor data.
+            Longer intervals help extend EPD lifetime.
+            Range: 10-300 seconds, Default: 30 seconds.
+
 endmenu

@@ -33,6 +33,7 @@
 #include <freertos/task.h>
 #include <driver/i2c.h>
 #include <driver/gpio.h>
+#include <esp_timer.h>
 
 #include <inttypes.h>
 #include <mutex>
@@ -68,6 +69,7 @@ static std::mutex s_sensor_data_mutex;
 static std::mutex s_sen55_data_mutex;
 static TaskHandle_t s_sensor_task_handle = nullptr;
 static TaskHandle_t s_sen55_task_handle = nullptr;
+static TaskHandle_t s_epd_task_handle = nullptr;
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
@@ -599,6 +601,83 @@ static void sen55_task(void* args_)
     }
 }
 
+static void get_scd4x_data_safe(scd40_sensor_data_t* data)
+{
+    std::lock_guard<std::mutex> lock(s_sensor_data_mutex);
+    *data = s_sensor_data;
+}
+
+static void get_sen55_data_safe(sen55_sensor_data_t* data)
+{
+    std::lock_guard<std::mutex> lock(s_sen55_data_mutex);
+    *data = s_sen55_data;
+}
+
+static void epd_display_sensor_data()
+{
+    // Get sensor data safely
+    scd40_sensor_data_t scd4x_data;
+    sen55_sensor_data_t sen55_data;
+    get_scd4x_data_safe(&scd4x_data);
+    get_sen55_data_safe(&sen55_data);
+
+    // Format display text for 200x200 EPD
+    char display_text[512];
+    snprintf(display_text, sizeof(display_text),
+        "Air Quality Monitor\n"
+        "\n"
+        "SCD4x Sensor:\n"
+        "CO2: %u ppm\n"
+        "Temp: %.1f C\n"
+        "Humidity: %.1f %%\n"
+        "\n"
+        "SEN55 Sensor:\n"
+        "PM1.0: %.1f ug/m3\n"
+        "PM2.5: %.1f ug/m3\n"
+        "PM10: %.1f ug/m3\n"
+        "VOC: %.1f\n"
+        "NOx: %.1f\n"
+        "\n"
+        "Update: %llds",
+        scd4x_data.co2_concentration,
+        scd4x_data.temperature * 1.0e-3f,
+        scd4x_data.relative_humidity * 1.0e-3f,
+        sen55_data.mass_concentration_pm1p0 / 10.0f,
+        sen55_data.mass_concentration_pm2p5 / 10.0f,
+        sen55_data.mass_concentration_pm10p0 / 10.0f,
+        sen55_data.voc_index / 10.0f,
+        sen55_data.nox_index / 10.0f,
+        esp_timer_get_time() / 1000000
+    );
+
+    ESP_LOGI(TAG, "Updating EPD display with sensor data");
+    
+    if (esp_err_t ret = epd_display_text(display_text); ret != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to update EPD display: %s", esp_err_to_name(ret));
+    } else {
+        ESP_LOGI(TAG, "EPD display updated successfully");
+    }
+}
+
+static void epd_task(void* args_)
+{
+    ESP_LOGI(TAG, "EPD display task started (update interval: %d seconds)", CONFIG_EPD_UPDATE_INTERVAL_SEC);
+    
+    // Update display immediately on startup
+    ESP_LOGI(TAG, "EPD display initial update");
+    epd_display_sensor_data();
+    
+    TickType_t wake_time = xTaskGetTickCount();
+    const TickType_t update_interval = pdMS_TO_TICKS(CONFIG_EPD_UPDATE_INTERVAL_SEC * 1000);
+
+    while(true) {
+        vTaskDelayUntil(&wake_time, update_interval);
+        
+        ESP_LOGI(TAG, "EPD display update cycle begin");
+        epd_display_sensor_data();
+    }
+}
+
 extern "C" void app_main()
 {
     /* Initialize the ESP NVS layer */
@@ -650,6 +729,12 @@ extern "C" void app_main()
     initialize_sen55();
     if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 4096, nullptr, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SEN55 task");
+        abort();
+    }
+
+    /* Start EPD display task */
+    if( BaseType_t result = xTaskCreatePinnedToCore(epd_task, "epd_task", 4096, nullptr, 3, &s_epd_task_handle, APP_CPU_NUM); result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create EPD display task");
         abort();
     }
 
