@@ -281,6 +281,15 @@ static void initialize_scd4x()
         return;
     }
 
+    // Set temperature offset in sensor for accurate humidity compensation
+    // Convert millicelsius offset to raw sensor value: (offset_celsius * 65535 / 175)
+    uint16_t offset_raw = (uint16_t)((CONFIG_SCD4X_TEMP_OFFSET_MILLICELSIUS * 65535 / 1000) / 175);
+    if (int16_t error = scd4x_set_temperature_offset_raw(offset_raw); error != NO_ERROR) {
+        ESP_LOGE(TAG, "error executing scd4x_set_temperature_offset_raw(): %" PRIi16, error);
+        return;
+    }
+    ESP_LOGI(TAG, "SCD4x temperature offset set to %dm°C (raw: %u)", CONFIG_SCD4X_TEMP_OFFSET_MILLICELSIUS, offset_raw);
+
     // Read out information about the sensor
     uint16_t serial_number[3] = {0};
     if (int16_t error = scd4x_get_serial_number(serial_number, 3); error != NO_ERROR) {
@@ -494,12 +503,9 @@ static void scd4x_task(void* args_)
             continue;
         }
         
-        // Apply temperature offset to compensate for device self-heating
-        temperature += CONFIG_SCD4X_TEMP_OFFSET_MILLICELSIUS;
-        
-        // Print results in physical units.
+        // Print results in physical units (temperature and humidity already compensated by sensor)
         ESP_LOGI(TAG, "CO2 concentration [ppm]: %" PRIu16, co2_concentration);
-        ESP_LOGI(TAG, "Temperature [m°C] (offset corrected): %" PRIi32, temperature);
+        ESP_LOGI(TAG, "Temperature [m°C]: %" PRIi32, temperature);
         ESP_LOGI(TAG, "Humidity [mRH]: %" PRIi32, relative_humidity);
 
         // Lock and update the sensor data
