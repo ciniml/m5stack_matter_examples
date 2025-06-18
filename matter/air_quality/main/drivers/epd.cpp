@@ -12,7 +12,6 @@
 static const char *TAG = "epd";
 
 static AirQ_EPD epd;
-static M5Canvas canvas(&epd);
 
 esp_err_t epd_init(void)
 {
@@ -24,11 +23,10 @@ esp_err_t epd_init(void)
     }
     
     epd.setEpdMode(epd_mode_t::epd_fastest);
-    
-    canvas.createSprite(epd.width(), epd.height());
-    canvas.setTextSize(1);
-    canvas.setTextColor(TFT_BLACK);
-    canvas.setTextDatum(middle_center);
+    epd.setTextSize(1);
+    epd.setTextColor(TFT_BLACK);
+    epd.setTextDatum(top_left);
+    epd.setFont(&fonts::Font0);
     
     epd.clear(TFT_WHITE);
     epd.waitDisplay();
@@ -41,11 +39,8 @@ esp_err_t epd_display_text(const char* text)
 {
     ESP_LOGI(TAG, "Displaying sensor data");
     
-    canvas.fillSprite(TFT_WHITE);
-    
-    // Use smaller font for sensor data display
-    canvas.setFont(&fonts::Font0);
-    canvas.setTextDatum(top_left);
+    // Clear display and draw directly to EPD
+    epd.clear(TFT_WHITE);
     
     // Split text into lines and display with proper spacing
     const char* line_start = text;
@@ -67,8 +62,8 @@ esp_err_t epd_display_text(const char* text)
             strncpy(line_buffer, line_start, line_len);
             line_buffer[line_len] = '\0';
             
-            // Draw the line
-            canvas.drawString(line_buffer, 5, y);
+            // Draw the line directly to EPD
+            epd.drawString(line_buffer, 5, y);
             y += line_height;
         }
         
@@ -80,7 +75,6 @@ esp_err_t epd_display_text(const char* text)
         }
     }
     
-    canvas.pushSprite(0, 0);
     epd.waitDisplay();
     
     return ESP_OK;
