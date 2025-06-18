@@ -34,6 +34,7 @@
 #include <driver/i2c.h>
 #include <driver/gpio.h>
 #include <esp_timer.h>
+#include <esp_heap_caps.h>
 
 #include <inttypes.h>
 #include <mutex>
@@ -70,6 +71,7 @@ static std::mutex s_sen55_data_mutex;
 static TaskHandle_t s_sensor_task_handle = nullptr;
 static TaskHandle_t s_sen55_task_handle = nullptr;
 static TaskHandle_t s_epd_task_handle = nullptr;
+static TaskHandle_t s_heap_monitor_task_handle = nullptr;
 
 using namespace esp_matter;
 using namespace esp_matter::attribute;
@@ -555,7 +557,7 @@ static void scd4x_task(void* args_)
 
     while(true) {
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(30000));
-        ESP_LOGI(TAG, "SCD4x Measurement begin.");
+        ESP_LOGI(TAG, "SCD4x Measurement begin. (Free heap: %" PRIu32 " bytes)", esp_get_free_heap_size());
 
         bool data_ready = false;
         while(true) {
@@ -629,7 +631,7 @@ static void sen55_task(void* args_)
 
     while(true) {
         vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(10000)); // SEN55 has 1Hz output rate
-        ESP_LOGI(TAG, "SEN55 Measurement begin.");
+        ESP_LOGI(TAG, "SEN55 Measurement begin. (Free heap: %" PRIu32 " bytes)", esp_get_free_heap_size());
 
         bool data_ready = false;
         while(true) {
@@ -767,8 +769,36 @@ static void epd_task(void* args_)
     }
 }
 
+static void heap_monitor_task(void* args_)
+{
+    ESP_LOGI(TAG, "Heap monitor task started (monitoring interval: 10 seconds)");
+    
+    TickType_t wake_time = xTaskGetTickCount();
+    const TickType_t monitor_interval = pdMS_TO_TICKS(10000); // 10 seconds
+
+    while(true) {
+        vTaskDelayUntil(&wake_time, monitor_interval);
+        
+        size_t free_heap = esp_get_free_heap_size();
+        uint32_t min_free_heap = esp_get_minimum_free_heap_size();
+        size_t largest_free_block = heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT);
+        
+        // Get internal RAM heap info
+        size_t internal_free = heap_caps_get_free_size(MALLOC_CAP_INTERNAL);
+        
+        ESP_LOGI(TAG, "HEAP: Free=%zu Min=%" PRIu32 " LargestBlock=%zu Internal=%zu", free_heap, min_free_heap, largest_free_block, internal_free);
+    }
+}
+
 extern "C" void app_main()
 {
+    /* Log initial heap state */
+    ESP_LOGI(TAG, "=== STARTUP HEAP STATE ===");
+    ESP_LOGI(TAG, "Initial free heap: %" PRIu32 " bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Initial largest free block: %zu bytes", heap_caps_get_largest_free_block(MALLOC_CAP_DEFAULT));
+    ESP_LOGI(TAG, "Initial internal RAM free: %zu bytes", heap_caps_get_free_size(MALLOC_CAP_INTERNAL));
+    ESP_LOGI(TAG, "==========================");
+
     /* Initialize the ESP NVS layer */
     nvs_flash_init();
 
@@ -784,10 +814,20 @@ extern "C" void app_main()
     err = epd_display_text("Hello World");
     ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to display text on e-paper display, err:%d", err));
 
+    /* Log heap state before Matter initialization */
+    ESP_LOGI(TAG, "=== PRE-MATTER HEAP STATE ===");
+    ESP_LOGI(TAG, "Free heap before Matter: %" PRIu32 " bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "==============================");
+
     /* Create a Matter node and add the mandatory Root Node device type on endpoint 0 */
     node::config_t node_config;
     node_t *node = node::create(&node_config, app_attribute_update_cb, app_identification_cb);
     ABORT_APP_ON_FAILURE(node != nullptr, ESP_LOGE(TAG, "Failed to create Matter node"));
+
+    /* Log heap state after Matter node creation */
+    ESP_LOGI(TAG, "=== POST-MATTER NODE HEAP STATE ===");
+    ESP_LOGI(TAG, "Free heap after Matter node: %" PRIu32 " bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "===================================");
 
     // add temperature sensor device
     temperature_sensor::config_t temp_sensor_config;
@@ -853,6 +893,11 @@ extern "C" void app_main()
     co2_val.val.f = 0.0f;
     attribute::create(co2_cluster, CarbonDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, co2_val);
 
+    /* Log heap state after all endpoints creation */
+    ESP_LOGI(TAG, "=== POST-ENDPOINTS HEAP STATE ===");
+    ESP_LOGI(TAG, "Free heap after endpoints: %" PRIu32 " bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "==================================");
+
     
     /* Initialize shared I2C bus for sensors */
     initialize_i2c_bus();
@@ -863,7 +908,7 @@ extern "C" void app_main()
     scd4x_task_args->temperature_endpoint_id = endpoint::get_id(temp_sensor_ep);
     scd4x_task_args->humidity_endpoint_id = endpoint::get_id(humidity_sensor_ep);
     scd4x_task_args->co2_endpoint_id = endpoint::get_id(co2_sensor_ep);
-    if( BaseType_t result = xTaskCreatePinnedToCore(scd4x_task, "scd4x_task", 4096, scd4x_task_args, 5, &s_sensor_task_handle, APP_CPU_NUM); result != pdPASS) {
+    if( BaseType_t result = xTaskCreatePinnedToCore(scd4x_task, "scd4x_task", 3072, scd4x_task_args, 5, &s_sensor_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SCD4x task");
         abort();
     }
@@ -876,14 +921,20 @@ extern "C" void app_main()
     sen55_task_args->pm10_endpoint_id = endpoint::get_id(pm10_sensor_ep);
     sen55_task_args->voc_endpoint_id = 0; // VOC not implemented yet
     sen55_task_args->nox_endpoint_id = 0; // NOx not implemented yet
-    if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 4096, sen55_task_args, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
+    if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 3072, sen55_task_args, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SEN55 task");
         abort();
     }
 
     /* Start EPD display task */
-    if( BaseType_t result = xTaskCreatePinnedToCore(epd_task, "epd_task", 4096, nullptr, 3, &s_epd_task_handle, APP_CPU_NUM); result != pdPASS) {
+    if( BaseType_t result = xTaskCreatePinnedToCore(epd_task, "epd_task", 3072, nullptr, 3, &s_epd_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create EPD display task");
+        abort();
+    }
+
+    /* Start heap monitor task for debugging memory issues */
+    if( BaseType_t result = xTaskCreatePinnedToCore(heap_monitor_task, "heap_monitor", 3072, nullptr, 1, &s_heap_monitor_task_handle, APP_CPU_NUM); result != pdPASS) {
+        ESP_LOGE(TAG, "Failed to create heap monitor task");
         abort();
     }
 
@@ -915,7 +966,18 @@ extern "C" void app_main()
     set_openthread_platform_config(&config);
 #endif
 
+    /* Log heap state before Matter start */
+    ESP_LOGI(TAG, "=== PRE-MATTER START HEAP STATE ===");
+    ESP_LOGI(TAG, "Free heap before Matter start: %" PRIu32 " bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "===================================");
+
     /* Matter start */
     err = esp_matter::start(app_event_cb);
     ABORT_APP_ON_FAILURE(err == ESP_OK, ESP_LOGE(TAG, "Failed to start Matter, err:%d", err));
+
+    /* Log final heap state after Matter start */
+    ESP_LOGI(TAG, "=== FINAL HEAP STATE ===");
+    ESP_LOGI(TAG, "Free heap after Matter start: %" PRIu32 " bytes", esp_get_free_heap_size());
+    ESP_LOGI(TAG, "Minimum free heap ever: %" PRIu32 " bytes", esp_get_minimum_free_heap_size());
+    ESP_LOGI(TAG, "========================");
 }
