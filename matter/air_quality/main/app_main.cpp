@@ -130,6 +130,56 @@ static void occupancy_sensor_notification(uint16_t endpoint_id, bool occupancy, 
     });
 }
 
+// PM sensor notifications using specific PM concentration measurement clusters for SEN55 sensor data
+static void pm25_sensor_notification(uint16_t endpoint_id, float pm25_concentration, void *user_data)
+{
+    // schedule the attribute update so that we can report it from matter thread
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, pm25_concentration]() {
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
+                                                 Pm25ConcentrationMeasurement::Id,
+                                                 Pm25ConcentrationMeasurement::Attributes::MeasuredValue::Id);
+
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        esp_matter::attribute::get_val(attribute, &val);
+        // Convert µg/m³ to float (Matter specification uses float for concentration)
+        val.val.f = pm25_concentration;
+
+        esp_matter::attribute::update(endpoint_id, Pm25ConcentrationMeasurement::Id, Pm25ConcentrationMeasurement::Attributes::MeasuredValue::Id, &val);
+    });
+}
+
+static void pm10_sensor_notification(uint16_t endpoint_id, float pm10_concentration, void *user_data)
+{
+    // schedule the attribute update so that we can report it from matter thread
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, pm10_concentration]() {
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
+                                                 Pm10ConcentrationMeasurement::Id,
+                                                 Pm10ConcentrationMeasurement::Attributes::MeasuredValue::Id);
+
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        esp_matter::attribute::get_val(attribute, &val);
+        val.val.f = pm10_concentration;
+
+        esp_matter::attribute::update(endpoint_id, Pm10ConcentrationMeasurement::Id, Pm10ConcentrationMeasurement::Attributes::MeasuredValue::Id, &val);
+    });
+}
+
+static void pm1_sensor_notification(uint16_t endpoint_id, float pm1_concentration, void *user_data)
+{
+    // schedule the attribute update so that we can report it from matter thread
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, pm1_concentration]() {
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
+                                                 Pm1ConcentrationMeasurement::Id,
+                                                 Pm1ConcentrationMeasurement::Attributes::MeasuredValue::Id);
+
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        esp_matter::attribute::get_val(attribute, &val);
+        val.val.f = pm1_concentration;
+
+        esp_matter::attribute::update(endpoint_id, Pm1ConcentrationMeasurement::Id, Pm1ConcentrationMeasurement::Attributes::MeasuredValue::Id, &val);
+    });
+}
+
 static esp_err_t factory_reset_button_register()
 {
     button_handle_t push_button;
@@ -466,6 +516,14 @@ typedef struct scd4x_task_args_s {
     endpoint_t co2_endpoint_id;
 } scd4x_task_args_t;
 
+typedef struct sen55_task_args_s {
+    endpoint_t pm1_endpoint_id;
+    endpoint_t pm25_endpoint_id;
+    endpoint_t pm10_endpoint_id;
+    endpoint_t voc_endpoint_id;
+    endpoint_t nox_endpoint_id;
+} sen55_task_args_t;
+
 static void scd4x_task(void* args_)
 {
     auto args = static_cast<scd4x_task_args_t*>(args_);
@@ -526,6 +584,8 @@ static void scd4x_task(void* args_)
 
 static void sen55_task(void* args_)
 {
+    auto args = static_cast<sen55_task_args_t*>(args_);
+
     ESP_LOGI(TAG, "SEN55 Measurement task started");
 
     TickType_t wake_time = xTaskGetTickCount();
@@ -606,7 +666,11 @@ static void sen55_task(void* args_)
             s_sen55_data.nox_index = nox_index;
         }
 
-        // Note: Matter endpoint updates would go here if implemented
+        // Update Matter attributes for air quality sensors
+        pm1_sensor_notification(args->pm1_endpoint_id, mass_concentration_pm1p0 / 10.0f, nullptr);
+        pm25_sensor_notification(args->pm25_endpoint_id, mass_concentration_pm2p5 / 10.0f, nullptr);
+        pm10_sensor_notification(args->pm10_endpoint_id, mass_concentration_pm10p0 / 10.0f, nullptr);
+        // Note: VOC and NOx don't have standard Matter clusters yet, would need custom implementation
     }
 }
 
@@ -719,6 +783,46 @@ extern "C" void app_main()
     endpoint_t * humidity_sensor_ep = humidity_sensor::create(node, &humidity_sensor_config, ENDPOINT_FLAG_NONE, NULL);
     ABORT_APP_ON_FAILURE(humidity_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create humidity_sensor endpoint"));
 
+    // add air quality sensor devices for SEN55 PM measurements with specific PM concentration clusters
+    air_quality_sensor::config_t pm1_sensor_config;
+    endpoint_t * pm1_sensor_ep = air_quality_sensor::create(node, &pm1_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    ABORT_APP_ON_FAILURE(pm1_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create PM1.0 air_quality_sensor endpoint"));
+    
+    // Add PM1 concentration measurement cluster to the PM1 endpoint
+    cluster_t * pm1_cluster = cluster::create(pm1_sensor_ep, Pm1ConcentrationMeasurement::Id, CLUSTER_FLAG_SERVER);
+    ABORT_APP_ON_FAILURE(pm1_cluster != nullptr, ESP_LOGE(TAG, "Failed to create PM1 concentration measurement cluster"));
+    // Add MeasuredValue attribute to PM1 cluster
+    esp_matter_attr_val_t pm1_val = esp_matter_invalid(NULL);
+    pm1_val.type = ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT;
+    pm1_val.val.f = 0.0f;
+    attribute::create(pm1_cluster, Pm1ConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, pm1_val);
+
+    air_quality_sensor::config_t pm25_sensor_config;
+    endpoint_t * pm25_sensor_ep = air_quality_sensor::create(node, &pm25_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    ABORT_APP_ON_FAILURE(pm25_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create PM2.5 air_quality_sensor endpoint"));
+    
+    // Add PM2.5 concentration measurement cluster to the PM2.5 endpoint
+    cluster_t * pm25_cluster = cluster::create(pm25_sensor_ep, Pm25ConcentrationMeasurement::Id, CLUSTER_FLAG_SERVER);
+    ABORT_APP_ON_FAILURE(pm25_cluster != nullptr, ESP_LOGE(TAG, "Failed to create PM2.5 concentration measurement cluster"));
+    // Add MeasuredValue attribute to PM2.5 cluster
+    esp_matter_attr_val_t pm25_val = esp_matter_invalid(NULL);
+    pm25_val.type = ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT;
+    pm25_val.val.f = 0.0f;
+    attribute::create(pm25_cluster, Pm25ConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, pm25_val);
+
+    air_quality_sensor::config_t pm10_sensor_config;
+    endpoint_t * pm10_sensor_ep = air_quality_sensor::create(node, &pm10_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    ABORT_APP_ON_FAILURE(pm10_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create PM10 air_quality_sensor endpoint"));
+    
+    // Add PM10 concentration measurement cluster to the PM10 endpoint
+    cluster_t * pm10_cluster = cluster::create(pm10_sensor_ep, Pm10ConcentrationMeasurement::Id, CLUSTER_FLAG_SERVER);
+    ABORT_APP_ON_FAILURE(pm10_cluster != nullptr, ESP_LOGE(TAG, "Failed to create PM10 concentration measurement cluster"));
+    // Add MeasuredValue attribute to PM10 cluster
+    esp_matter_attr_val_t pm10_val = esp_matter_invalid(NULL);
+    pm10_val.type = ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT;
+    pm10_val.val.f = 0.0f;
+    attribute::create(pm10_cluster, Pm10ConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, pm10_val);
+
     
     /* Initialize shared I2C bus for sensors */
     initialize_i2c_bus();
@@ -736,7 +840,13 @@ extern "C" void app_main()
 
     /* Initialize the SEN55 sensor */
     initialize_sen55();
-    if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 4096, nullptr, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
+    sen55_task_args_t* sen55_task_args = new sen55_task_args_t;
+    sen55_task_args->pm1_endpoint_id = endpoint::get_id(pm1_sensor_ep);
+    sen55_task_args->pm25_endpoint_id = endpoint::get_id(pm25_sensor_ep);
+    sen55_task_args->pm10_endpoint_id = endpoint::get_id(pm10_sensor_ep);
+    sen55_task_args->voc_endpoint_id = 0; // VOC not implemented yet
+    sen55_task_args->nox_endpoint_id = 0; // NOx not implemented yet
+    if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 4096, sen55_task_args, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SEN55 task");
         abort();
     }
