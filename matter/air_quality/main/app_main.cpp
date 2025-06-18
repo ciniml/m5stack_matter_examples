@@ -180,6 +180,22 @@ static void pm1_sensor_notification(uint16_t endpoint_id, float pm1_concentratio
     });
 }
 
+static void co2_sensor_notification(uint16_t endpoint_id, float co2_concentration, void *user_data)
+{
+    // schedule the attribute update so that we can report it from matter thread
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, co2_concentration]() {
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
+                                                 CarbonDioxideConcentrationMeasurement::Id,
+                                                 CarbonDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id);
+
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        esp_matter::attribute::get_val(attribute, &val);
+        val.val.f = co2_concentration;
+
+        esp_matter::attribute::update(endpoint_id, CarbonDioxideConcentrationMeasurement::Id, CarbonDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, &val);
+    });
+}
+
 static esp_err_t factory_reset_button_register()
 {
     button_handle_t push_button;
@@ -577,7 +593,7 @@ static void scd4x_task(void* args_)
         // Update Matter attributes
         temp_sensor_notification(args->temperature_endpoint_id, temperature * 1.0e-3f, nullptr);
         humidity_sensor_notification(args->humidity_endpoint_id, relative_humidity * 1.0e-3f, nullptr);
-        // TODO: Update CO2 sensor
+        co2_sensor_notification(args->co2_endpoint_id, static_cast<float>(co2_concentration), nullptr);
     }
 
 }
@@ -612,7 +628,7 @@ static void sen55_task(void* args_)
     }
 
     while(true) {
-        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(1000)); // SEN55 has 1Hz output rate
+        vTaskDelayUntil(&wake_time, pdMS_TO_TICKS(10000)); // SEN55 has 1Hz output rate
         ESP_LOGI(TAG, "SEN55 Measurement begin.");
 
         bool data_ready = false;
@@ -823,6 +839,20 @@ extern "C" void app_main()
     pm10_val.val.f = 0.0f;
     attribute::create(pm10_cluster, Pm10ConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, pm10_val);
 
+    // add CO2 concentration sensor endpoint for SCD4x CO2 measurements
+    air_quality_sensor::config_t co2_sensor_config;
+    endpoint_t * co2_sensor_ep = air_quality_sensor::create(node, &co2_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    ABORT_APP_ON_FAILURE(co2_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create CO2 air_quality_sensor endpoint"));
+    
+    // Add CO2 concentration measurement cluster to the CO2 endpoint
+    cluster_t * co2_cluster = cluster::create(co2_sensor_ep, CarbonDioxideConcentrationMeasurement::Id, CLUSTER_FLAG_SERVER);
+    ABORT_APP_ON_FAILURE(co2_cluster != nullptr, ESP_LOGE(TAG, "Failed to create CO2 concentration measurement cluster"));
+    // Add MeasuredValue attribute to CO2 cluster
+    esp_matter_attr_val_t co2_val = esp_matter_invalid(NULL);
+    co2_val.type = ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT;
+    co2_val.val.f = 0.0f;
+    attribute::create(co2_cluster, CarbonDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, co2_val);
+
     
     /* Initialize shared I2C bus for sensors */
     initialize_i2c_bus();
@@ -832,7 +862,7 @@ extern "C" void app_main()
     scd4x_task_args_t* scd4x_task_args = new scd4x_task_args_t;
     scd4x_task_args->temperature_endpoint_id = endpoint::get_id(temp_sensor_ep);
     scd4x_task_args->humidity_endpoint_id = endpoint::get_id(humidity_sensor_ep);
-    //scd4x_task_args->co2_endpoint_id = endpoint::get_id(co2_sensor_ep);
+    scd4x_task_args->co2_endpoint_id = endpoint::get_id(co2_sensor_ep);
     if( BaseType_t result = xTaskCreatePinnedToCore(scd4x_task, "scd4x_task", 4096, scd4x_task_args, 5, &s_sensor_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SCD4x task");
         abort();
