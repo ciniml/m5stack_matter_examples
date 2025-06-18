@@ -494,9 +494,12 @@ static void scd4x_task(void* args_)
             continue;
         }
         
+        // Apply temperature offset to compensate for device self-heating
+        temperature += CONFIG_SCD4X_TEMP_OFFSET_MILLICELSIUS;
+        
         // Print results in physical units.
         ESP_LOGI(TAG, "CO2 concentration [ppm]: %" PRIu16, co2_concentration);
-        ESP_LOGI(TAG, "Temperature [m°C] : %" PRIi32, temperature);
+        ESP_LOGI(TAG, "Temperature [m°C] (offset corrected): %" PRIi32, temperature);
         ESP_LOGI(TAG, "Humidity [mRH]: %" PRIi32, relative_humidity);
 
         // Lock and update the sensor data

@@ -23,4 +23,16 @@ menu "Air Quality Sensor Unit Configuration"
             Longer intervals help extend EPD lifetime.
             Range: 10-300 seconds, Default: 30 seconds.
 
+    config SCD4X_TEMP_OFFSET_MILLICELSIUS
+        int "SCD4x temperature offset in millicelsius"
+        range -10000 10000
+        default -5000
+        help
+            Temperature offset to compensate for device self-heating effects.
+            The SCD4x sensor may read higher temperatures due to heat from
+            the device electronics. This offset is subtracted from the raw
+            temperature reading. Positive values reduce the reported temperature.
+            Range: -10.0 to +10.0 degrees Celsius (in millicelsius)
+            Default: -5000 millicelsius (-5.0°C offset)
+
 endmenu
