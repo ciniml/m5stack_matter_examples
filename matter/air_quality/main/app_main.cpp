@@ -15,6 +15,9 @@
 #include <esp_log.h>
 #include <esp_matter.h>
 #include <esp_matter_ota.h>
+#include <esp_matter_core.h>
+#include <esp_matter_providers.h>
+#include <lib/core/CHIPError.h>
 #include <nvs_flash.h>
 
 #include <app_openthread_config.h>
@@ -40,6 +43,121 @@
 #include <mutex>
 
 static const char *TAG = "app_main";
+
+// Custom Device Instance Information Provider Implementation
+class CustomDeviceInstanceInfoProvider : public chip::DeviceLayer::DeviceInstanceInfoProvider {
+public:
+    CustomDeviceInstanceInfoProvider() = default;
+    ~CustomDeviceInstanceInfoProvider() = default;
+
+    // Basic device information methods
+    CHIP_ERROR GetVendorName(char * buf, size_t bufSize) override {
+        const char* vendorName = "M5Stack";
+        size_t len = strlen(vendorName);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, vendorName);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetVendorId(uint16_t & vendorId) override {
+        vendorId = 0xfff1; // Custom vendor ID
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetProductName(char * buf, size_t bufSize) override {
+        const char* productName = "Air Quality Monitor";
+        size_t len = strlen(productName);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, productName);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetProductId(uint16_t & productId) override {
+        productId = 0x8001;
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetPartNumber(char * buf, size_t bufSize) override {
+        const char* partNumber = "AQ-M5-001";
+        size_t len = strlen(partNumber);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, partNumber);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetProductURL(char * buf, size_t bufSize) override {
+        const char* productURL = "https://m5stack.com";
+        size_t len = strlen(productURL);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, productURL);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetProductLabel(char * buf, size_t bufSize) override {
+        const char* productLabel = "AirQuality-M5";
+        size_t len = strlen(productLabel);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, productLabel);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetSerialNumber(char * buf, size_t bufSize) override {
+        const char* serialNumber = "AQ001-001";
+        size_t len = strlen(serialNumber);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, serialNumber);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetManufacturingDate(uint16_t & year, uint8_t & month, uint8_t & day) override {
+        year = 2024;
+        month = 6;
+        day = 19;
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetHardwareVersion(uint16_t & hardwareVersion) override {
+        hardwareVersion = 1;
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetHardwareVersionString(char * buf, size_t bufSize) override {
+        const char* hwVersion = "1.0";
+        size_t len = strlen(hwVersion);
+        if (len >= bufSize) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        strcpy(buf, hwVersion);
+        return CHIP_NO_ERROR;
+    }
+    
+    CHIP_ERROR GetRotatingDeviceIdUniqueId(chip::MutableByteSpan & uniqueIdSpan) override {
+        // Generate a simple unique ID based on serial number
+        const char* serialStr = "AQ001-001";
+        size_t serialLen = strlen(serialStr);
+        if (uniqueIdSpan.size() < serialLen) {
+            return CHIP_ERROR_BUFFER_TOO_SMALL;
+        }
+        memcpy(uniqueIdSpan.data(), serialStr, serialLen);
+        uniqueIdSpan.reduce_size(serialLen);
+        return CHIP_NO_ERROR;
+    }
+};
+
+static CustomDeviceInstanceInfoProvider sCustomDeviceInstanceInfoProvider;
+
 
 // I2C bus configuration - shared between sensors
 static bool s_i2c_initialized = false;
@@ -828,6 +946,16 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "=== POST-MATTER NODE HEAP STATE ===");
     ESP_LOGI(TAG, "Free heap after Matter node: %" PRIu32 " bytes", esp_get_free_heap_size());
     ESP_LOGI(TAG, "===================================");
+
+    /* Set up custom device instance information provider */
+    ESP_LOGI(TAG, "Setting up custom device instance information provider");
+#if CONFIG_CUSTOM_DEVICE_INSTANCE_INFO_PROVIDER
+    esp_matter::set_custom_device_instance_info_provider(&sCustomDeviceInstanceInfoProvider);
+    ESP_LOGI(TAG, "Custom device instance info provider registered successfully");
+    ESP_LOGI(TAG, "Device: M5Stack Air Quality Monitor (Vendor: 0x1234, Product: 0x0001)");
+#else
+    ESP_LOGW(TAG, "CONFIG_CUSTOM_DEVICE_INSTANCE_INFO_PROVIDER not enabled");
+#endif
 
     // add temperature sensor device
     temperature_sensor::config_t temp_sensor_config;
