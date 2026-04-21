@@ -316,6 +316,38 @@ static void co2_sensor_notification(uint16_t endpoint_id, float co2_concentratio
     });
 }
 
+// VOC Index from SEN55 (Sensirion scale 0-500, dimensionless) reported via TVOC cluster
+static void voc_sensor_notification(uint16_t endpoint_id, float voc_index, void *user_data)
+{
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, voc_index]() {
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
+                                                 TotalVolatileOrganicCompoundsConcentrationMeasurement::Id,
+                                                 TotalVolatileOrganicCompoundsConcentrationMeasurement::Attributes::MeasuredValue::Id);
+
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        esp_matter::attribute::get_val(attribute, &val);
+        val.val.f = voc_index;
+
+        esp_matter::attribute::update(endpoint_id, TotalVolatileOrganicCompoundsConcentrationMeasurement::Id, TotalVolatileOrganicCompoundsConcentrationMeasurement::Attributes::MeasuredValue::Id, &val);
+    });
+}
+
+// NOx Index from SEN55 (Sensirion scale 0-500, dimensionless) reported via NO2 cluster
+static void nox_sensor_notification(uint16_t endpoint_id, float nox_index, void *user_data)
+{
+    chip::DeviceLayer::SystemLayer().ScheduleLambda([endpoint_id, nox_index]() {
+        esp_matter::attribute_t * attribute = esp_matter::attribute::get(endpoint_id,
+                                                 NitrogenDioxideConcentrationMeasurement::Id,
+                                                 NitrogenDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id);
+
+        esp_matter_attr_val_t val = esp_matter_invalid(NULL);
+        esp_matter::attribute::get_val(attribute, &val);
+        val.val.f = nox_index;
+
+        esp_matter::attribute::update(endpoint_id, NitrogenDioxideConcentrationMeasurement::Id, NitrogenDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, &val);
+    });
+}
+
 static esp_err_t factory_reset_button_register()
 {
     button_handle_t push_button;
@@ -806,7 +838,8 @@ static void sen55_task(void* args_)
         pm1_sensor_notification(args->pm1_endpoint_id, mass_concentration_pm1p0 / 10.0f, nullptr);
         pm25_sensor_notification(args->pm25_endpoint_id, mass_concentration_pm2p5 / 10.0f, nullptr);
         pm10_sensor_notification(args->pm10_endpoint_id, mass_concentration_pm10p0 / 10.0f, nullptr);
-        // Note: VOC and NOx don't have standard Matter clusters yet, would need custom implementation
+        voc_sensor_notification(args->voc_endpoint_id, voc_index / 10.0f, nullptr);
+        nox_sensor_notification(args->nox_endpoint_id, nox_index / 10.0f, nullptr);
     }
 }
 
@@ -1021,6 +1054,30 @@ extern "C" void app_main()
     co2_val.val.f = 0.0f;
     attribute::create(co2_cluster, CarbonDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, co2_val);
 
+    // add VOC index sensor endpoint for SEN55 VOC measurements (Sensirion VOC Index via TVOC cluster)
+    air_quality_sensor::config_t voc_sensor_config;
+    endpoint_t * voc_sensor_ep = air_quality_sensor::create(node, &voc_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    ABORT_APP_ON_FAILURE(voc_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create VOC air_quality_sensor endpoint"));
+
+    cluster_t * voc_cluster = cluster::create(voc_sensor_ep, TotalVolatileOrganicCompoundsConcentrationMeasurement::Id, CLUSTER_FLAG_SERVER);
+    ABORT_APP_ON_FAILURE(voc_cluster != nullptr, ESP_LOGE(TAG, "Failed to create TVOC concentration measurement cluster"));
+    esp_matter_attr_val_t voc_val = esp_matter_invalid(NULL);
+    voc_val.type = ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT;
+    voc_val.val.f = 0.0f;
+    attribute::create(voc_cluster, TotalVolatileOrganicCompoundsConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, voc_val);
+
+    // add NOx index sensor endpoint for SEN55 NOx measurements (Sensirion NOx Index via NO2 cluster)
+    air_quality_sensor::config_t nox_sensor_config;
+    endpoint_t * nox_sensor_ep = air_quality_sensor::create(node, &nox_sensor_config, ENDPOINT_FLAG_NONE, NULL);
+    ABORT_APP_ON_FAILURE(nox_sensor_ep != nullptr, ESP_LOGE(TAG, "Failed to create NOx air_quality_sensor endpoint"));
+
+    cluster_t * nox_cluster = cluster::create(nox_sensor_ep, NitrogenDioxideConcentrationMeasurement::Id, CLUSTER_FLAG_SERVER);
+    ABORT_APP_ON_FAILURE(nox_cluster != nullptr, ESP_LOGE(TAG, "Failed to create NO2 concentration measurement cluster"));
+    esp_matter_attr_val_t nox_val = esp_matter_invalid(NULL);
+    nox_val.type = ESP_MATTER_VAL_TYPE_NULLABLE_FLOAT;
+    nox_val.val.f = 0.0f;
+    attribute::create(nox_cluster, NitrogenDioxideConcentrationMeasurement::Attributes::MeasuredValue::Id, ATTRIBUTE_FLAG_NULLABLE, nox_val);
+
     /* Log heap state after all endpoints creation */
     ESP_LOGI(TAG, "=== POST-ENDPOINTS HEAP STATE ===");
     ESP_LOGI(TAG, "Free heap after endpoints: %" PRIu32 " bytes", esp_get_free_heap_size());
@@ -1047,8 +1104,8 @@ extern "C" void app_main()
     sen55_task_args->pm1_endpoint_id = endpoint::get_id(pm1_sensor_ep);
     sen55_task_args->pm25_endpoint_id = endpoint::get_id(pm25_sensor_ep);
     sen55_task_args->pm10_endpoint_id = endpoint::get_id(pm10_sensor_ep);
-    sen55_task_args->voc_endpoint_id = 0; // VOC not implemented yet
-    sen55_task_args->nox_endpoint_id = 0; // NOx not implemented yet
+    sen55_task_args->voc_endpoint_id = endpoint::get_id(voc_sensor_ep);
+    sen55_task_args->nox_endpoint_id = endpoint::get_id(nox_sensor_ep);
     if( BaseType_t result = xTaskCreatePinnedToCore(sen55_task, "sen55_task", 3072, sen55_task_args, 5, &s_sen55_task_handle, APP_CPU_NUM); result != pdPASS) {
         ESP_LOGE(TAG, "Failed to create SEN55 task");
         abort();
